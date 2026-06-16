@@ -29,10 +29,6 @@
 ;; overview capabilities of that port.  On all ports, it can scroll
 ;; past images or other content taller than the window without issue.
 ;;
-;; The strongly recommended scroll settings are:
-;; 
-;;  scroll-margin=0
-;;
 ;; See also `pixel-scroll-precision-mode' in pixel-scroll.el.
 
 ;;; Code:
@@ -272,6 +268,22 @@ temporarily."
 	  (run-with-idle-timer ultra-scroll-idle-time nil
 			       #'ultra-scroll--end-scroll))))
 
+(defsubst ultra-scroll--scroll-margin (&optional window)
+  "Return the `scroll-margin' in lines, based on the height of WINDOW.
+This is proportionally clamped to `maximum-scroll-margin'."
+  (let* ((window (or window (selected-window)))
+         (maximum
+          (if (and
+               (floatp maximum-scroll-margin)
+               (<= 0.0 maximum-scroll-margin 0.5))
+              maximum-scroll-margin
+            0.25)))
+    (min
+     (max 0 scroll-margin)
+     (floor (*
+             (max 0 (window-body-height window))
+             maximum)))))
+
 ;;;; Scroll
 (defun ultra-scroll-down (delta)
   "Scroll the current window down by DELTA pixels.
@@ -281,6 +293,7 @@ DELTA should not be larger than the height of the current window."
 	 (win-height (- (nth 3 edges) (nth 1 edges)))
 	 (current-vs (window-vscroll nil t))
 	 (off (+ (window-tab-line-height) (window-header-line-height)))
+         (margin (ultra-scroll--scroll-margin))
          (new-start (posn-point (posn-at-x-y 0 (+ delta off))))
 	 (new-start-posn (and new-start (posn-at-point new-start))))
     (unless new-start-posn ; scroll delta could be larger than win height!
@@ -308,7 +321,7 @@ DELTA should not be larger than the height of the current window."
 	(set-window-vscroll nil delta t t)
 	;; Avoid recentering
 	(goto-char (posn-point (posn-at-x-y 0 off))) ; window-start may be above
-	(if (zerop (vertical-motion 1))	; move down 1 line from top
+	(if (zerop (vertical-motion (1+ margin)))	; move down margin plus 1 lines from top
 	    (signal 'end-of-buffer nil))
 	(if (> initial (point)) (goto-char initial))))))
 
@@ -320,6 +333,7 @@ DELTA should be less than the window's height."
 	 (win-height (- (nth 3 edges) (nth 1 edges)))
 	 (win-start (window-start))
 	 (current-vs (window-vscroll nil t))
+         (margin (ultra-scroll--scroll-margin))
 	 (start win-start))
     (if (<= delta current-vs)	    ; simple case: just reduce vscroll
 	(setq delta (- current-vs delta))
@@ -356,7 +370,7 @@ DELTA should be less than the window's height."
 	    (goto-char start))) ; now move up
       (when-let* ((p (posn-at-x-y 0 (1- win-height))))
 	(goto-char (posn-point p))
-	(vertical-motion -1)
+	(vertical-motion (- (1+ margin)))
 	(if (< initial (point)) (goto-char initial))))))
 
 (defsubst ultra-scroll--scroll (delta window)
@@ -529,8 +543,6 @@ your system and hardware provide."
   (pixel-scroll-precision-mode (if ultra-scroll-mode 1 -1)) ;; reuse
   (cond
    (ultra-scroll-mode
-    (unless (= scroll-margin 0)
-      (warn "ultra-scroll: scroll-margin = 0 is required for glitch-free smooth scrolling"))
     (when (and (featurep 'x) (not (featurep 'xinput2)))
       (warn "ultra-scroll: Emacs on Linux/X11 must be compiled --with-xinput2"))
     (define-key pixel-scroll-precision-mode-map [remap pixel-scroll-precision]
